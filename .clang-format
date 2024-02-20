@@ -1,0 +1,21 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+AlignConsecutiveAssignments: AcrossComments
+AlignConsecutiveDeclarations: true
+AlignOperands: AlignAfterOperator
+BinPackArguments: false
+AllowAllArgumentsOnNextLine: false
+BinPackParameters: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: Empty
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  BeforeElse: true
+BreakBeforeBinaryOperators: All
+IndentCaseLabels: true
+SpaceAfterCStyleCast: true
+AllowShortFunctionsOnASingleLine: Empty
+Cpp11BracedListStyle: false
+MaxEmptyLinesToKeep: 2
+AlignConsecutiveMacros: true

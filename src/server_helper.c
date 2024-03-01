@@ -69,30 +69,57 @@ int get_server_socket(int port)
 }
 
 
-// 長い文字列を分割して送信
-// 未使用
-ssize_t div_and_send(int fd, char *buf)
+// リクエストをパース
+HTTP_REQUEST parse_request(char *request)
 {
-    if (buf == NULL)
-        return 0;
+    // メソッドの特定
+    char *saveptr;                                   // strtok_r 用
+    char *method = strtok_r(request, " ", &saveptr); // "GET" or "POST"
 
-    int len = strlen(buf);
-    int n   = len / BUFSIZ;
-    int r   = len % BUFSIZ;
+    // パスの特定
+    char *path = strtok_r(NULL, " ", &saveptr);
 
-    for (int i = 0; i < n - 1; i++) {
-        if (send(fd, buf + i * BUFSIZ, BUFSIZ, 0) < 0) {
-            perror("send");
-            return -1;
-        }
+    printf("parse_request:\n"
+           "\tmethod: %s\n"
+           "\tpath: %s\n",
+           method,
+           path);
+
+    // body を取得
+    char *body;
+    while ((body = strtok_r(NULL, "\n", &saveptr)) != NULL) {
+        if (strlen(body) == 1)
+            break;
+    }
+    body = strtok_r(NULL, "\0", &saveptr);
+
+    HTTP_REQUEST req
+        = { (const char *) method, (const char *) path, (const char *) body };
+
+    return req;
+}
+
+
+// レスポンスを送信
+int send_response(int fd, HTTP_RESPONSE *response)
+{
+    size_t status_len = 32;
+    size_t body_len   = strlen(response->body);
+    char  *send_buf   = (char *) malloc(status_len + body_len);
+
+    sprintf(send_buf, "HTTP/1.1 %d\n\n%s", response->status, response->body);
+
+    ssize_t send_n = send(fd, send_buf, strlen(send_buf), 0);
+    if (send_n < 0) {
+        perror("send");
+        fprintf(stderr, "send_response");
+        return -1;
     }
 
-    if (r > 0) {
-        if (send(fd, buf + (n - 1) * BUFSIZ, r, 0) < 0) {
-            perror("send");
-            return -1;
-        }
-    }
+    printf("send_response:\n"
+           "\tstatus: %d\n",
+           response->status);
 
+    free(send_buf);
     return 0;
 }

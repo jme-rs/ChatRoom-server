@@ -1,12 +1,97 @@
 #include "server.h"
-#include "db.h"
-#include "parson/parson.h"
 #include "server_helper.h"
 
 
-static void fork_server(int newfd, sqlite3 *db);
+static handler_f server_get_handler(SERVER *server, char *path_name);
+static handler_f server_get_wildcard_handler(SERVER *server);
+static handler_f server_get_404_handler(SERVER *server);
+static int server_default_404_handler(int fd, sqlite3 *db, const HTTP_REQUEST *);
+static void server_fork(SERVER *server, int fd, sqlite3 *db);
 
-void server(int port)
+
+// SERVER のインスタンスを作成
+SERVER server_create()
+{
+    SERVER server;
+    server.path_count = 0;
+
+    return server;
+}
+
+
+// パスについてのハンドラを追加
+void server_set_path(SERVER *server, char *path_name, handler_f handler)
+{
+    // パスの数が MAX_PATH を超えたらエラーを出力して終了
+    if (MAX_PATH <= server->path_count) {
+        fprintf(stderr, "server_add_path: MAX_PATH exceeded\n");
+        exit(EXIT_FAILURE);
+    }
+
+    server->paths[server->path_count].path_name = path_name;
+    server->paths[server->path_count].handler   = handler;
+    server->path_count++;
+}
+
+
+// パスが登録されていたらそのハンドラを返す
+// `handler_f` or `NULL`
+static handler_f server_get_handler(SERVER *server, char *path_name)
+{
+    for (int i = 0; i < server->path_count; i++) {
+        if (strcmp(path_name, server->paths[i].path_name) == 0) {
+            return server->paths[i].handler;
+        }
+    }
+
+    return NULL;
+}
+
+
+// ワイルドカードのハンドラを返す
+// `handler_f` or `NULL`
+static handler_f server_get_wildcard_handler(SERVER *server)
+{
+    for (int i = 0; i < server->path_count; i++) {
+        if (strcmp("/*", server->paths[i].path_name) == 0) {
+            return server->paths[i].handler;
+        }
+    }
+
+    return NULL;
+}
+
+
+// 404 ハンドラが登録されていたらそのハンドラを返す
+// ない場合はデフォルトの 404 ハンドラを返す
+static handler_f server_get_404_handler(SERVER *server)
+{
+    for (int i = 0; i < server->path_count; i++) {
+        if (strcmp("404", server->paths[i].path_name) == 0) {
+            return server->paths[i].handler;
+        }
+    }
+
+    return server_default_404_handler;
+}
+
+
+// デフォルトの 404 ハンドラ
+static int
+server_default_404_handler(int fd, sqlite3 *db, const HTTP_REQUEST *request)
+{
+    // HTTP レスポンスの作成
+    HTTP_RESPONSE response = { .status = 404, .body = "" };
+
+    // 送信
+    int ret = send_response(fd, &response);
+
+    return ret;
+}
+
+
+// サーバを起動
+void server_start(SERVER *server, int port)
 {
     // サーバソケットを作成
     int sockfd = get_server_socket(port);
@@ -22,7 +107,7 @@ void server(int port)
         return;
     }
 
-    // HTTP サーバを生み出す
+    // HTTP サーバを生成
     printf("Server listening on port %d...\n\n", port);
 
     while (true) {
@@ -31,6 +116,7 @@ void server(int port)
             break;
 
         pid_t pid = fork();
+
         switch (pid) {
             case -1: {
                 perror("fork");
@@ -40,14 +126,13 @@ void server(int port)
 
             // child
             case 0: {
-                fork_server(newfd, db);
+                server_fork(server, newfd, db);
                 close(newfd);
                 goto exit_process; // 子プロセスは終了
             }
 
             // parent
             default: {
-                // waitpid(pid, NULL, 0); // todo
                 close(newfd);
                 break;
             }
@@ -60,230 +145,34 @@ exit_process: // 終了処理
 }
 
 
-// fork された子プロセス
-// 1 リクエストに対して 1 応答 1 プロセス
-static void fork_server(int newfd, sqlite3 *db)
+// fork された子プロセスの処理
+static void server_fork(SERVER *server, int fd, sqlite3 *db)
 {
-    char recv_buf[BUFSIZ];
+    char *recv_buf = (char *) malloc(BUFSIZ);
 
     // 受信
-    ssize_t receive_n = recv(newfd, recv_buf, BUFSIZ, 0);
+    ssize_t receive_n = recv(fd, recv_buf, BUFSIZ, 0);
     if (receive_n < 0) {
         perror("recv");
         return;
     }
-    // printf("** Received from client **\n"
-    //        "%s\n"
-    //        "** end **\n\n",
-    //        recv_buf);
 
-    // HTTP メソッドの特定
-    char *saveptr;                                    // strtok_r 用
-    char *method = strtok_r(recv_buf, " ", &saveptr); // "GET" or "POST"
+    // リクエストを解析
+    const HTTP_REQUEST request = parse_request(recv_buf);
 
-    // パスの特定
-    char *path = strtok_r(NULL, " ", &saveptr);
+    // パスに対応するハンドラを取得
+    handler_f handler;
+    if ((handler = server_get_handler(server, (char *) request.path)) != NULL)
+        ;
+    else if ((handler = server_get_wildcard_handler(server)) != NULL)
+        ;
+    else
+        handler = server_get_404_handler(server);
 
-    // body を取得
-    char *body;
-    while ((body = strtok_r(NULL, "\n", &saveptr)) != NULL) {
-        if (strlen(body) == 1)
-            break;
-    }
-    body = strtok_r(NULL, "\0", &saveptr);
+    // ハンドラを実行
+    int ret = handler(fd, db, &request);
+    if (ret < 0)
+        fprintf(stderr, "handler failed: %s\n", request.path);
 
-    // GET メソッドの場合
-    if (strcmp(method, "GET") == 0) {
-
-        // root はチャットルーム一覧の取得
-        if (strcmp(path, "/") == 0) {
-
-            // ログ
-            printf("Request: get room list\n");
-
-            // データベースからルーム名を取得
-            JSON_Value *rooms = db_select_rooms(db);
-
-            // 送信用の JSON を作成
-            //
-            // send_str == [
-            //     "room1", "room2", "room3", ...
-            //]
-            //
-            char *send_str = json_serialize_to_string(rooms);
-
-            // 送信するjson文字列の長さに応じてバッファを確保
-            int send_str_len = strlen(send_str);
-            char *send_buf = (char *)malloc(send_str_len + 128);
-
-            sprintf(send_buf,
-                    "HTTP/1.1 200\n"
-                    "\n"
-                    "%s\n",
-                    send_str);
-
-            // 送信
-            ssize_t send_n = send(newfd, send_buf, strlen(send_buf), 0);
-            if (send_n < 0) {
-                perror("send");
-                return;
-            }
-
-            // free
-            json_free_serialized_string(send_str);
-            json_value_free(rooms);
-            free(send_buf);
-        }
-
-        // パスはルーム名
-        else if (true) { // todo
-
-            // ログ
-            printf("Request: get %s messages\n", path);
-
-            // ルーム名を取得 (先頭の '/' を削除)
-            char *room_name = &path[1];
-
-            // データベースからメッセージを取得
-            JSON_Value *send_messages = db_select_msg(db, room_name);
-
-            // 送信用の JSON を作成
-            //
-            // send_str == {
-            //     "room": "room name",
-            //     "messages": [
-            //         {
-            //             "id": "tom1224",
-            //             "timestamp": "2020-12-24 12:00:00",
-            //             "message": "Hello, World!"
-            //         },
-            //         ...
-            //     ]
-            // }
-            //
-            JSON_Value  *send_value  = json_value_init_object();
-            JSON_Object *send_object = json_value_get_object(send_value);
-            JSON_Value  *room        = json_value_init_string(room_name);
-            json_object_set_value(send_object, "room", room);
-            json_object_set_value(send_object, "message", send_messages);
-
-            // 送信用の JSON を文字列に変換
-            char *send_str = json_serialize_to_string(send_value);
-
-            // 送信するjson文字列の長さに応じてバッファを確保
-            int send_str_len = strlen(send_str);
-            char *send_buf = (char *)malloc(send_str_len + 128);
-
-            sprintf(send_buf,
-                    "HTTP/1.1 200\n"
-                    "\n"
-                    "%s\n",
-                    send_str);
-
-            // デバッグ用
-            // printf("** Send to client **\n"
-            //        "%s\n"
-            //        "** end **\n\n",
-            //        send_buf);
-
-            // 送信
-            ssize_t send_n = send(newfd, send_buf, strlen(send_buf), 0);
-            if (send_n < 0) {
-                perror("send");
-                return;
-            }
-
-            // free
-            json_free_serialized_string(send_str);
-            json_value_free(send_value);
-            free(send_buf);
-        }
-
-        // 404
-        else {
-            char send_buf[BUFSIZ];
-            sprintf(send_buf, "HTTP/1.1 404\n\n");
-
-            // 送信
-            ssize_t send_n = send(newfd, send_buf, strlen(send_buf), 0);
-            if (send_n < 0) {
-                perror("send");
-                return;
-            }
-        }
-    }
-
-    // POST の場合
-    else if (strcmp(method, "POST") == 0) {
-
-        // root はルームの作成
-        if (strcmp(path, "/") == 0) {
-            char send_buf[BUFSIZ];
-
-            // JSON を解析
-            JSON_Value  *json_value  = json_parse_string(body);
-            JSON_Object *json_object = json_value_get_object(json_value);
-            const char  *room = json_object_get_string(json_object, "room");
-
-            // ログ
-            printf("Request: create room '%s'\n", room);
-
-            // データベースにルームを挿入
-            int rc = db_insert_rooms(db, room);
-            if (rc != 0) {
-                sprintf(send_buf, "HTTP/1.1 500\n\n");
-            }
-            else {
-                sprintf(send_buf, "HTTP/1.1 200\n\n");
-            }
-
-            // 送信
-            ssize_t send_n = send(newfd, send_buf, strlen(send_buf), 0);
-            if (send_n < 0) {
-                perror("send");
-                return;
-            }
-
-            // free
-            json_value_free(json_value);
-        }
-
-        // パスはルーム名
-        else if (true) { // todo
-            char send_buf[BUFSIZ];
-
-            // ログ
-            printf("Request: post message to %s\n", path);
-
-            // ルーム名を取得 (先頭の '/' を削除)
-            char *room_name = &path[1];
-
-            // JSON を解析
-            JSON_Value  *json_value  = json_parse_string(body);
-            JSON_Object *json_object = json_value_get_object(json_value);
-            const char  *id  = json_object_get_string(json_object, "id");
-            const char  *msg = json_object_get_string(json_object, "message");
-
-            // データベースにメッセージを挿入
-            int rc = db_insert_msg(db, id, room_name, msg);
-            if (rc != 0) {
-                sprintf(send_buf, "HTTP/1.1 500\n\n");
-            }
-            else {
-                sprintf(send_buf, "HTTP/1.1 200\n\n");
-            }
-
-            // 送信
-            ssize_t send_n = send(newfd, send_buf, strlen(send_buf), 0);
-            if (send_n < 0) {
-                perror("send");
-                return;
-            }
-
-            // free
-            json_value_free(json_value);
-        }
-    }
-
-    // プロセス終了
+    free(recv_buf);
 }

@@ -1,14 +1,16 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
+#include "handlers/handlers_export.h"
 #include "server.h"
 
 
 int main()
 {
-    server(8080);
-    return 0;
+    SERVER server = server_create();
+
+    server_set_path(&server, "/", root_handler);
+    server_set_path(&server, "/*", rooms_handler);
+    server_set_path(&server, "/404", not_found_handler);
+
+    server_start(&server, 8080);
 }

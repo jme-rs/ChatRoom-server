@@ -11,11 +11,24 @@
 #include <unistd.h>
 
 
-int     get_socket();
-int     bind_socket(int sockfd, int port);
-int     accept_connection(int sockfd);
-int     get_server_socket(int port);
-ssize_t div_and_send(int fd, char *buf);
+typedef struct {
+    const char *method;
+    const char *path;
+    const char *body;
+} HTTP_REQUEST;
+
+typedef struct {
+    int   status;
+    char *body;
+} HTTP_RESPONSE;
+
+
+int          get_socket();
+int          bind_socket(int sockfd, int port);
+int          accept_connection(int sockfd);
+int          get_server_socket(int port);
+HTTP_REQUEST parse_request(char *request);
+int          send_response(int fd, HTTP_RESPONSE *response);
 
 
 #endif // SERVER_HELPER_H

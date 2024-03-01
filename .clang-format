@@ -19,3 +19,4 @@ AllowShortFunctionsOnASingleLine: Empty
 Cpp11BracedListStyle: false
 MaxEmptyLinesToKeep: 2
 AlignConsecutiveMacros: true
+# AllowShortIfStatementsOnASingleLine: SIS_AllIfsAndElse

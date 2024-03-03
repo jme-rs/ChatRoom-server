@@ -48,7 +48,10 @@ static int get(int fd, sqlite3 *db, const HTTP_REQUEST *request)
     char *send_json_str = json_serialize_to_string(send_value);
 
     // HTTP レスポンスの作成
-    HTTP_RESPONSE response = { .status = 200, .body = send_json_str };
+    HTTP_RESPONSE response = {
+        .status = 200,
+        .body = send_json_str
+    };
 
     // 送信
     int ret = send_response(fd, &response);

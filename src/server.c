@@ -8,7 +8,7 @@ static handler_f server_get_404_handler(SERVER *server);
 static int
 server_default_404_handler(int fd, sqlite3 *db, const HTTP_REQUEST *);
 static void server_fork(SERVER *server, int fd, sqlite3 *db);
-static void server_thread(void *arg);
+static void server_create_thread(void *arg);
 
 
 // SERVER のインスタンスを作成
@@ -41,9 +41,8 @@ void server_set_path(SERVER *server, char *path_name, handler_f handler)
 static handler_f server_get_handler(SERVER *server, char *path_name)
 {
     for (int i = 0; i < server->path_count; i++) {
-        if (strcmp(path_name, server->paths[i].path_name) == 0) {
+        if (strcmp(path_name, server->paths[i].path_name) == 0)
             return server->paths[i].handler;
-        }
     }
 
     return NULL;
@@ -55,9 +54,8 @@ static handler_f server_get_handler(SERVER *server, char *path_name)
 static handler_f server_get_wildcard_handler(SERVER *server)
 {
     for (int i = 0; i < server->path_count; i++) {
-        if (strcmp("/*", server->paths[i].path_name) == 0) {
+        if (strcmp("/*", server->paths[i].path_name) == 0)
             return server->paths[i].handler;
-        }
     }
 
     return NULL;
@@ -69,9 +67,8 @@ static handler_f server_get_wildcard_handler(SERVER *server)
 static handler_f server_get_404_handler(SERVER *server)
 {
     for (int i = 0; i < server->path_count; i++) {
-        if (strcmp("404", server->paths[i].path_name) == 0) {
+        if (strcmp("404", server->paths[i].path_name) == 0)
             return server->paths[i].handler;
-        }
     }
 
     return server_default_404_handler;
@@ -213,7 +210,7 @@ void server_start_thread(SERVER *server, int port)
         pthread_t tid;
         pthread_create(&tid,
                        NULL,
-                       (void *) server_thread,
+                       (void *) server_create_thread,
                        (void *) server_thread_arg);
     }
 
@@ -223,7 +220,7 @@ void server_start_thread(SERVER *server, int port)
 
 
 // 作られたスレッド
-static void server_thread(void *arg)
+static void server_create_thread(void *arg)
 {
     // 引数を取り出す
     SERVER_THREAD_ARG *server_thread_arg = (SERVER_THREAD_ARG *) arg;

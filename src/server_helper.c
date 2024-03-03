@@ -107,7 +107,8 @@ int send_response(int fd, HTTP_RESPONSE *response)
     size_t body_len   = strlen(response->body);
     char  *send_buf   = (char *) malloc(status_len + body_len);
 
-    sprintf(send_buf, "HTTP/1.1 %d\n\n%s", response->status, response->body);
+    sprintf(send_buf, "HTTP/1.1 %d\n\n%s\n", response->status, response->body);
+    // printf("%s\n", send_buf);
 
     ssize_t send_n = send(fd, send_buf, strlen(send_buf), 0);
     if (send_n < 0) {

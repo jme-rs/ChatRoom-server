@@ -11,26 +11,9 @@ SERVER server = server_create();
 
 server_add_path(&server, "/", root_handler);
 server_add_path(&server, "/games", root_handler);
-server_add_path(&server, "/*", room2_handler);
+server_add_path(&server, "/*", room_handler);
 
 server_start(&server, 8080);
-```
-
-Hono (<https://github.com/honojs/hono>) というライブラリからインスパイアされた．
-
-```ts
-import { Hono, Middleware } from 'hono'
-
-const app = new Hono()
-
-app.use('*', Middleware.logger())
-
-app.get('/', (c) => c.text('Hello Hono!'))
-app.get('/entry/:id', (c) => {
-  return c.json({ 'your id' : c.req.param('id') })
-})
-
-app.fire()
 ```
 
 ## ビルド
@@ -48,7 +31,8 @@ make
 - パスが存在する場合はそのハンドラを呼び出す．
 - 直接的なパスが存在しない場合は，ワイルドカード `/*` に対するハンドラを呼び出す．
 - `/404` に対するハンドラが存在しない場合は，デフォルトのハンドラを呼び出す．
-- `server_start()` でサーバを起動．
+- `server_start()` でサーバを起動．(リクエスト毎に fork)
+- `server_start_thread()` でサーバを起動．(リクエスト毎にスレッドを生成)
 
 ### HTTP
 
@@ -102,14 +86,9 @@ make
 
 ## 工夫した点
 
-- 関数ポインタを利用した簡潔な見た目を実現．
+- パスによって実行する関数を決めるようにした．
+- 簡潔なライブラリの使い方．
 - ワイルドカード `/*` による動的にルーティング．
-- 構造体，関数，ディレクトリ構成，エイリアスを考えて設計．
-- なるべく `if` や `for` を秘匿し，インデントが深くならないように関数型?(使ったことない)のようなコーディングを意識．
-- 同じスコープ内でリソースの開放によるメモリリークの防止．
-- 変数スコープを短くした．
-- エラーハンドリングもそこそこ意識した．
-- clang-format を使用．
 
 ## 課題
 
@@ -117,8 +96,10 @@ make
   - ハンドラを追加したときに Makefile を書き換えないようにしたい．
 - yaml などの設定ファイルを読み込んで，ハンドラを登録するようにしたい．
 - C言語でテストするのは大変そうなのでぶっつけ本番で作ってしまった．
-- ネストされたワイルドカードに対応していない．
-  - 再帰的な構造体にして実現可能．
+- パスをネストさせる記述を工夫したい．
+  - 構造体を再帰的なものにする．
+  - ルート以外のワイルドカードに対応させる．
 - clang-format で気に入らないフォーマットが残っている．
 - HTTP の実装が最低限．
   - ヘッダを全く使っていない．
+- データベース系の処理をハンドラと同じファイルに書けばよかった．

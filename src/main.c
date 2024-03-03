@@ -6,11 +6,12 @@
 
 int main()
 {
-    SERVER server = server_create();
+    SERVER chat_room = server_create();
 
-    server_set_path(&server, "/", root_handler);
-    server_set_path(&server, "/*", rooms_handler);
-    server_set_path(&server, "/404", not_found_handler);
+    server_set_path(&chat_room, "/", root_handler);
+    server_set_path(&chat_room, "/*", rooms_handler);
+    server_set_path(&chat_room, "/404", not_found_handler);
 
-    server_start(&server, 8080);
+    // server_start(&chat_room, 8080);
+    server_start_thread(&chat_room, 8080);
 }
